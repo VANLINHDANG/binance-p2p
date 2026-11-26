@@ -9,14 +9,15 @@ on:
 permissions:
   contents: write
 
+# Không hủy lần đang chạy; lần mới đợi lần cũ xong để giá được gửi liên tục (mỗi lần chạy gửi giá mỗi 60 giây trong 4 phút)
 concurrency:
   group: binance-push
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   push:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,7 +27,7 @@ jobs:
         env:
           WORKER_URL: ${{ secrets.WORKER_URL }}
           ALERT_KEY: ${{ secrets.ALERT_KEY }}
-          RUN_SEC: '0'
+          RUN_SEC: '240'
       - name: Giữ lịch chạy (commit nếu đã quá 30 ngày)
         if: always()
         run: |
