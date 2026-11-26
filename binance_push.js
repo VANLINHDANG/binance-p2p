@@ -56,20 +56,38 @@ async function bybit() {
   return { buy: await side('1'), sell: await side('0') };
 }
 
-(async () => {
-  if (!WORKER || !KEY) { console.error('Thiếu secret WORKER_URL hoặc ALERT_KEY'); process.exit(1); }
+async function motLan() {
   const [bn, by] = await Promise.allSettled([binance(), bybit()]);
   const payload = {};
   for (const [k, r, name] of [['bn', bn, 'Binance'], ['by', by, 'Bybit']]) {
     if (r.status === 'fulfilled') {
       payload[k] = r.value;
-      console.log(`${name}: mua tốt nhất ${r.value.buy[0] && r.value.buy[0].p}, bán tốt nhất ${r.value.sell[0] && r.value.sell[0].p} (${r.value.buy.length}/${r.value.sell.length} quảng cáo)`);
+      console.log(`${name}: mua ${r.value.buy[0] && r.value.buy[0].p}, bán ${r.value.sell[0] && r.value.sell[0].p} (${r.value.buy.length}/${r.value.sell.length} QC)`);
     } else console.error(`${name} LỖI: ${r.reason && r.reason.message}`);
   }
-  if (!Object.keys(payload).length) { console.error('Không lấy được sàn nào'); process.exit(1); }
+  if (!Object.keys(payload).length) throw new Error('Không lấy được sàn nào');
   const r = await fetch(WORKER + '/api/push', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-key': KEY }, body: JSON.stringify(payload),
   });
-  console.log('Worker trả về:', r.status, (await r.text()).slice(0, 200));
-  if (!r.ok) process.exit(1);
-})().catch(e => { console.error('LỖI:', e.message); process.exit(1); });
+  const t = await r.text();
+  console.log('Worker trả về:', r.status, t.slice(0, 160));
+  if (!r.ok) throw new Error('Worker HTTP ' + r.status);
+}
+
+// Mỗi lần chạy của GitHub kéo dài RUN_SEC giây, cứ 60 giây lấy và gửi giá một lần (lịch chạy 5 phút một lần nên gần như liên tục).
+const RUN_SEC = Number(process.env.RUN_SEC || 240);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  if (!WORKER || !KEY) { console.error('Thiếu secret WORKER_URL hoặc ALERT_KEY'); process.exit(1); }
+  const t0 = Date.now();
+  let ok = 0, fail = 0;
+  for (let i = 0; ; i++) {
+    console.log(`--- lần ${i + 1} (${new Date().toISOString()})`);
+    try { await motLan(); ok++; } catch (e) { fail++; console.error('LỖI:', e.message); }
+    const next = t0 + (i + 1) * 60000;
+    if (next - t0 > RUN_SEC * 1000) break;
+    await sleep(Math.max(0, next - Date.now()));
+  }
+  console.log(`Xong: ${ok} lần thành công, ${fail} lần lỗi`);
+  if (!ok) process.exit(1);
+})();
